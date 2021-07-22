@@ -1,3 +1,6 @@
+.vscode*
+.idea*
+.env*
 target
 .bloop
 .metals

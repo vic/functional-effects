@@ -12,18 +12,31 @@ object Looping extends App {
    *
    * Implement a `repeat` combinator using `flatMap` (or `zipRight`) and recursion.
    */
-  def repeat[R, E, A](n: Int)(effect: ZIO[R, E, A]): ZIO[R, E, Chunk[A]] =
-    ???
+  def repeat[R, E, A](n: Int)(effect: Int => ZIO[R, E, A]): ZIO[R, E, Chunk[A]] =
+    repeatInternal(n, ZIO.succeed(Chunk.empty), effect(_).map(Chunk.succeed))
+
+  @tailrec def repeatInternal[R, E, A](
+    n: Int,
+    prev: ZIO[R, E, Chunk[A]],
+    more: Int => ZIO[R, E, Chunk[A]]
+  ): ZIO[R, E, Chunk[A]] =
+    n match {
+      case n if n < 1 => prev
+      case _ =>
+        repeatInternal(n - 1, more(n).zipWith(prev)(_ ++ _), more)
+    }
 
   def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
-    repeat(100)(putStrLn("All work and no play makes Jack a dull boy")).exitCode
+    repeat(100000000)(n => putStrLn(s"${n}: All work and no play makes Jack a dull boy"))
+      .flatMap(c => putStrLn(s"Size: ${c.size}"))
+      .exitCode
 }
 
 object Interview extends App {
   import java.io.IOException
   import zio.console._
 
-  val questions =
+  val questions: List[String] =
     "Where where you born?" ::
       "What color are your eyes?" ::
       "What is your favorite movie?" ::
@@ -37,8 +50,12 @@ object Interview extends App {
    */
   def getAllAnswers(questions: List[String]): ZIO[Console, IOException, List[String]] =
     questions match {
-      case Nil     => ???
-      case q :: qs => ???
+      case Nil => ZIO.succeed(Nil)
+      case q :: qs =>
+        (putStrLn(q) *> getStrLn).zipWith(getAllAnswers(qs)) {
+          case (answer, answers: Seq[String]) =>
+            answer +: answers
+        }
     }
 
   /**
@@ -48,7 +65,7 @@ object Interview extends App {
    * `questions`, to ask the user a bunch of questions, and print the answers.
    */
   def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
-    ???
+    getAllAnswers(questions).flatMap(answers => answers.map(putStrLn(_)).reduce(_ *> _)).exitCode
 }
 
 object InterviewGeneric extends App {
@@ -68,12 +85,15 @@ object InterviewGeneric extends App {
    */
   def iterateAndCollect[R, E, A, B](as: List[A])(f: A => ZIO[R, E, B]): ZIO[R, E, List[B]] =
     as match {
-      case Nil     => ???
-      case a :: as => ???
+      case Nil     => ZIO.succeed(Nil)
+      case a :: as => f(a).flatMap(r => iterateAndCollect(as)(f).map(xs => r +: xs))
     }
 
+  def getAnswer(question: String): ZIO[Console, IOException, String] =
+    putStrLn(question) *> getStrLn
+
   def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
-    ???
+    iterateAndCollect(questions)(getAnswer).orDie.exitCode
 }
 
 object InterviewForeach extends App {
@@ -94,7 +114,11 @@ object InterviewForeach extends App {
    * out the contents of the collection.
    */
   def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
-    ???
+    ZIO
+      .foreach(questions)(InterviewGeneric.getAnswer)
+      .orDie
+      .flatMap(x => putStrLn(x.toString))
+      .exitCode
 }
 
 object WhileLoop extends App {
@@ -106,7 +130,11 @@ object WhileLoop extends App {
    * Implement the functional effect version of a while loop.
    */
   def whileLoop[R, E, A](cond: UIO[Boolean])(zio: ZIO[R, E, A]): ZIO[R, E, Chunk[A]] =
-    ???
+    cond.flatMap {
+      case false => ZIO.succeed(Chunk.empty[A])
+      case true =>
+        zio.zipWith(whileLoop(cond)(zio))(_ +: _)
+    }
 
   def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] = {
     def loop(variable: Ref[Int]) =
@@ -135,12 +163,14 @@ object Iterate extends App {
    * evaluates to false, returning the "last" value of type `A`.
    */
   def iterate[R, E, A](start: A)(cond: A => Boolean)(f: A => ZIO[R, E, A]): ZIO[R, E, A] =
-    ???
+    cond(start) match {
+      case false => ZIO.succeed(start)
+      case true =>
+        f(start).flatMap(a => iterate(a)(cond)(f))
+    }
 
   def run(args: List[String]): ZIO[ZEnv, Nothing, ExitCode] =
-    iterate(0)(_ < 100) { i =>
-      putStrLn(s"At iteration: ${i}").as(i + 1)
-    }.exitCode
+    iterate(0)(_ < 100)(i => putStrLn(s"At iteration: ${i}").as(i + 1)).exitCode
 }
 
 object TailRecursive extends App {
